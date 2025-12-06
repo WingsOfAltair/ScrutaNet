@@ -1,6 +1,6 @@
 <h3 align="center">
-	<img src="https://raw.githubusercontent.com/WingsOfAltair/ScrutaNet/refs/heads/main/repository_assets_github/ScrutaNet-nobg.png" width="100" height="100" alt="Logo"/><br/>
-	<a href="https://github.com/WingsOfAltair/ScrutaNet">ScrutaNet</a>
+	<img href="https://github.com/WingsOfAltair/ScrutaNet" src="https://raw.githubusercontent.com/WingsOfAltair/ScrutaNet/refs/heads/main/repository_assets_github/ScrutaNet-nobg.png" width="100" height="100" alt="Logo"/><br/>
+	<a href="https://scrutanet.plancksoft.net">ScrutaNet</a>
 </h3>
 
 <p align="center">
@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-	<img width=500 src="repository_assets_github/ScrutaNet.png"/>
+	<img href="https://scrutanet.plancksoft.net" width=500 src="repository_assets_github/ScrutaNet.png"/>
 </p>
 
 ## About
@@ -75,11 +75,11 @@ The client can be configured to be multi-threaded or single-threaded. Also, it s
 &nbsp;
 
 <p align="center">
-	<a href="https://wingsofaltair.github.io/Plancksoft/" target="_blank"> <img src="https://raw.githubusercontent.com/WingsOfAltair/Plancksoft/refs/heads/main/Content/assets/img/plancksoft.png" /></a>
+	<a href="https://plancksoft.net" target="_blank"> <img src="https://raw.githubusercontent.com/WingsOfAltair/Plancksoft/refs/heads/main/Content/assets/img/plancksoft.png" /></a>
 </p>
 
 <p align="center">
-	Copyright &copy; 2025 - Present <a href="https://wingsofaltair.github.io/Plancksoft/" target="_blank">Plancksoft</a>
+	Copyright &copy; 2025 - Present <a href="https://plancksoft.net" target="_blank">Plancksoft</a>
 </p>
 
 <p align="center">
