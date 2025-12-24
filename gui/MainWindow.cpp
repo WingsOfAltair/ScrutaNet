@@ -226,7 +226,7 @@ void MainWindow::reloadClients() {
 
     bool allReady = std::all_of(clientsReady.begin(), clientsReady.end(),
                                 [](const auto& pair) {
-                                    return pair.second.second; // second = is_ready
+                                    return !pair.second.second; // !working → ready
                                 });
 
     if (!allReady)
@@ -271,7 +271,7 @@ void MainWindow::sendHash() {
 
         bool allReady = std::all_of(clientsReady.begin(), clientsReady.end(),
                                     [](const auto& pair) {
-                                        return pair.second.second; // second = is_ready
+                                        return !pair.second.second; // !working → ready
                                     });
 
         if (!allReady)
@@ -315,10 +315,11 @@ void MainWindow::TurnOffCrackingZeroClients() {
 void MainWindow::RefreshList() {
     ui->listWidgetClients->clear();
 
-    std::unordered_map<std::string, std::pair<std::string, bool>> connectedClients = serverManager->getConnectedClientsStatus();
+    std::unordered_map<std::string, std::pair<std::string, bool>> connectedClients =
+        serverManager->getConnectedClientsStatus();
 
     for (const auto& [clientIdStd, clientInfo] : connectedClients) {
-        const auto& [nickname, ready] = clientInfo;  // destructure pair<string,bool>
+        const auto& [nickname, working] = clientInfo;  // working = true if client is processing
 
         QString clientId = QString::fromStdString(clientIdStd);
         QString displayText = clientId;
@@ -327,15 +328,16 @@ void MainWindow::RefreshList() {
             displayText += " (" + QString::fromStdString(nickname) + ")";
         }
 
-        if (ready) {
-            displayText += " [Ready]";
+        if (working) {
+            displayText += " [Working]";
         } else {
-            displayText += " [Not Ready]";
+            displayText += " [Ready]";
         }
 
         ui->listWidgetClients->addItem(displayText);
     }
 }
+
 
 void MainWindow::onClientConnected(const QString& clientId) {
     this->RefreshList();
