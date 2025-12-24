@@ -9,8 +9,12 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <unordered_map>
+#include <unordered_set>
 #include <fstream>
 #include <sstream>
+#include <atomic>
+#include <chrono>
 #include <boost/algorithm/string/trim.hpp>        
 #include "../shared/AsyncLogger.h" 
 #include "../shared/AsyncStorageLogger.h" 
@@ -23,9 +27,11 @@ using boost::asio::ip::tcp;
 int SERVER_PORT = 0;
 std::unordered_map<std::string, std::shared_ptr<tcp::socket>> clients;
 std::unordered_map<std::string, bool> clients_ready;
+std::unordered_set<std::string> task_participants;         // clients currently assigned this task (includes catch-ups)
 std::mutex clients_mutex;  // Protect shared containers
 std::atomic<bool> match_found(false);
-std::atomic<int> clients_responses(0);
+std::atomic<bool> task_active(false); // indicates a task is currently active
+std::atomic<int> current_task_id(0);  // simple task id counter
 int total_clients = 0;
 
 std::string hash_type;
@@ -100,6 +106,7 @@ std::string extract_password_from_match_response(const std::string& match_info) 
             return word;
         }
     }
+    return "";
 }
 
 // Convert to lowercase
@@ -149,12 +156,73 @@ std::string getHashType(const std::string& hash) {
     return "Unknown hash type";
 }
 
+// Task participant helpers (all protected by clients_mutex internally)
+void add_task_participant_locked(const std::string& client_key) {
+    task_participants.insert(client_key);
+}
+
+void remove_task_participant_locked_and_mark_response(const std::string& client_key) {
+    // Called under clients_mutex
+    if (task_participants.erase(client_key)) {
+        // If participant removed due to an actual response (NO_MATCH/Ready), and no participants remain,
+        // that means all assigned clients finished the task => end task.
+        if (task_participants.empty()) {
+            task_active.store(false, std::memory_order_relaxed);
+        }
+    }
+}
+
+void remove_task_participant_locked_no_response(const std::string& client_key) {
+    // remove participant without treating as a response (used previously on disconnect) -- left for completeness.
+    task_participants.erase(client_key);
+    // Do NOT set task_active=false here: disconnects should NOT end the task.
+}
+
+// Helper: send the current active task to a single client socket and add them as participant on success
+void send_current_task_to_client(const std::shared_ptr<tcp::socket>& sock, const std::string& client_key) {
+    if (!sock || !sock->is_open()) return;
+
+    std::string message;
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        if (hash_type.empty() || hash.empty()) return;
+        // Keep same message format clients already expect
+        message = hash_type + ":" + hash;
+        if (!salt.empty()) {
+            message += ":" + salt;
+        }
+        message += "\n";
+    }
+
+    try {
+        boost::asio::write(*sock, boost::asio::buffer(message));
+        // On successful send, register as participant
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        add_task_participant_locked(client_key);
+    }
+    catch (const boost::system::system_error& e) {
+        std::cerr << "Failed to send active task to new client: " << e.what() << "\n";
+    }
+}
+
 // Notify clients with new hash
 void notify_clients(
-    const std::string& hash_type,
-    const std::string& hash,
-    const std::string& salt = "")
+    const std::string& hash_type_param,
+    const std::string& hash_param,
+    const std::string& salt_param = "")
 {
+    // store shared task state under lock
+    {
+        std::lock_guard<std::mutex> lock(clients_mutex);
+        hash_type = hash_type_param;
+        hash = hash_param;
+        salt = salt_param;
+        task_active = true;
+        ++current_task_id;
+        // clear any previous participants
+        task_participants.clear();
+    }
+
     std::string message = hash_type + ":" + hash;
     if (!salt.empty()) {
         message += ":" + salt;
@@ -168,9 +236,8 @@ void notify_clients(
             if (it != clients.end() && it->second && it->second->is_open()) {
                 try {
                     boost::asio::write(*it->second, boost::asio::buffer(message));
-                    for (auto& pair : clients_ready) {
-                        pair.second = false;
-                    }
+                    // register as participant only after successful send
+                    add_task_participant_locked(client_id);
                 }
                 catch (const boost::system::system_error& e) {
                     // Optional: handle disconnect or remove client here
@@ -178,6 +245,11 @@ void notify_clients(
                 }
             }
         }
+    }
+
+    // Mark all clients as not-ready (they're now working)
+    for (auto& pair : clients_ready) {
+        pair.second = false;
     }
 }
 
@@ -192,14 +264,16 @@ void reload_ready_clients() {
             if (it != clients.end() && it->second && it->second->is_open()) {
                 try {
                     boost::asio::write(*it->second, boost::asio::buffer(message));
-                    for (auto& pair : clients_ready) {
-                        pair.second = false;
-                    }
-                } catch (const boost::system::system_error& e) {
+                }
+                catch (const boost::system::system_error& e) {
                     std::cerr << "Failed to send reload to client " << client_id << ": " << e.what() << "\n";
                 }
             }
         }
+    }
+
+    for (auto& pair : clients_ready) {
+        pair.second = false;
     }
 }
 
@@ -216,12 +290,22 @@ void handle_client(std::shared_ptr<tcp::socket> client_socket) {
         ++total_clients;
     }
 
+    // If a task is currently active, send the current task to the newly connected client
+    if (task_active && !match_found) {
+        {
+            std::lock_guard<std::mutex> lock(clients_mutex);
+            std::cout << "Sending current active task to new client " << client_key << " so it can catch up.\n";
+        }
+        send_current_task_to_client(client_socket, client_key);
+        // client remains not-ready until it responds (client should send Ready or NO_MATCH)
+    }
+
     try {
         boost::asio::streambuf buffer;
         while (true) {
             boost::system::error_code error;
             size_t len = boost::asio::read_until(*client_socket, buffer, "\n", error);
-            
+
             if (error == boost::asio::error::eof) {
                 std::cout << "Client " << client_key << " disconnected normally.\n";
                 break;
@@ -270,19 +354,28 @@ void handle_client(std::shared_ptr<tcp::socket> client_socket) {
                             }
                         }
                     }
+                    // Task ended
+                    task_active = false;
+                    // clear participants since STOP was sent
+                    task_participants.clear();
                 }
             }
             else if (message.find("NO_MATCH") == 0) {
-                std::cout << "Match not found in client: " << client_socket << std::endl;
+                std::cout << "Match not found in client: " << client_key << std::endl;
                 std::lock_guard<std::mutex> lock(clients_mutex);
+                // mark client ready
                 clients_ready[client_key] = true;
+                // if this client was participating, mark response and remove from participants
+                remove_task_participant_locked_and_mark_response(client_key);
             }
             else if (message.find("Ready") == 0) {
                 std::lock_guard<std::mutex> lock(clients_mutex);
                 clients_ready[client_key] = true;
                 std::cout << "Client " << client_key << " is ready.\n";
+                // If this client was participating, mark response and remove from participants
+                remove_task_participant_locked_and_mark_response(client_key);
             }
-            ++clients_responses;
+            // Note: don't treat disconnection as a response; disconnect simply leaves participant entry intact
         }
     }
     catch (const std::exception& e) {
@@ -292,9 +385,26 @@ void handle_client(std::shared_ptr<tcp::socket> client_socket) {
     // Cleanup client on disconnect with lock
     {
         std::lock_guard<std::mutex> lock(clients_mutex);
+        // IMPORTANT CHANGE:
+        // Do NOT remove the client from task_participants on disconnect.
+        // Removing participants on disconnect previously allowed the server to consider a task finished
+        // when the last assigned client disconnected. We must keep the task active and continue sending
+        // catch-up assignments to newly connected clients until an explicit STOP (MATCH) or until
+        // assigned participants report NO_MATCH/Ready and the participant set becomes empty.
+        //
+        // HOWEVER: when the last connected client disconnects (clients map becomes empty), we should
+        // terminate the active task and stop sending catch-up messages.
         clients.erase(client_key);
         clients_ready.erase(client_key);
         --total_clients;
+
+        if (clients.empty() && task_active.load(std::memory_order_relaxed)) {
+            // last disconnected client event
+            std::cout << "No remaining clients connected, Terminating...\n";
+            logger.log("No remaining clients connected, Terminating current task.");
+            task_active.store(false, std::memory_order_relaxed);
+            task_participants.clear();
+        }
     }
 }
 
@@ -426,7 +536,7 @@ int main() {
             if (!is_valid_hashtype(hash_type)) {
                 std::cout << "Unknown hash type." << std::endl;
                 continue;
-            }  
+            }
 
             if (!is_valid_hashtype(hash_type)) {
                 std::cout << "Unknown hash type." << std::endl;
@@ -453,7 +563,6 @@ int main() {
                 {
                     std::cout << "There are no ready clients. Forfieting request." << std::endl;
                     match_found = false;
-                    clients_responses = 0;
                     continue;
                 }
 
@@ -472,28 +581,27 @@ int main() {
                     start = std::chrono::high_resolution_clock::now();
                     notify_clients(hash_type, hash, salt);
                     match_found = false;
-                    clients_responses = 0;
 
                     for (auto& pair : clients_ready) {
                         pair.second = false;
                     }
 
                     std::cout << "Processing entered hash, please wait...\n";
-                    while (clients_responses < clients_ready.size()) {
+
+                    // Wait until the task is cleared (by MATCH -> STOP or by all participants responding via NO_MATCH/Ready).
+                    // Do NOT consider client disconnects as participant responses (disconnects won't stop catch-up behavior),
+                    // except when the last connected client has disconnected (handled in disconnect cleanup above).
+                    while (task_active.load(std::memory_order_relaxed) && !match_found.load(std::memory_order_relaxed)) {
                         boost::this_thread::sleep_for(boost::chrono::milliseconds(100));
-                        if (match_found) {
-                            break;
-                        }
                     }
 
-                    if (!match_found && clients_responses == clients_ready.size()) {
-                        auto end = std::chrono::high_resolution_clock::now();
-                        std::chrono::duration<double, std::milli> duration_ms = end - start;
+                    if (!match_found) {
+                        auto end_local = std::chrono::high_resolution_clock::now();
+                        std::chrono::duration<double, std::milli> duration_ms = end_local - start;
                         std::cout << "No matches found, please wait until you can enter a new hash...\n";
                         std::cout << "Elapsed time: " << duration_ms.count() << " ms\n";
-
                     }
-                    else if (match_found) {
+                    else {
                         std::cout << "Match found, please wait until you can enter a new hash...\nThis may take a while depending on your clients' hardware/os.\n";
                     }
                 }

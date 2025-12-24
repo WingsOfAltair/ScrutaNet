@@ -1,2 +1,7 @@
 .vs/ScrutaNet/v17/Browse.VC.db
 .vs/ScrutaNet/v17/ipch/AutoPCH/322a71231590aba7/SCRUTANET-CLIENT-CLI.ipch
+/.vs
+/build
+/.vs/ScrutaNet/v18
+/ScrutaNet-Server-CLI/x64
+/ScrutaNet-Client-CLI/x64
