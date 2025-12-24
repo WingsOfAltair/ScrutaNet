@@ -342,6 +342,21 @@ void ServerManager::removeClientNickname(const std::string& clientId) {
 
 // ------------------- Client Notifications ----------------------
 void ServerManager::sendHashToClients(const QString& hashType, const QString& hash, const QString& salt) {
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+
+        bool anyBusy = std::any_of(
+            clientsReady.begin(),
+            clientsReady.end(),
+            [](const auto& p) { return p.second.second; } // working == true
+            );
+
+        if (anyBusy) {
+            emit logMessage("Cannot start cracking: clients are reloading.");
+            return;
+        }
+    }
+
     start = std::chrono::high_resolution_clock::now();
     currentHashType = hashType;
     currentHash = hash;
@@ -525,16 +540,51 @@ void ServerManager::readCrackedHashes(const QString& file) {
     }
 }
 
-void ServerManager::reloadClients() {
-    std::lock_guard<std::mutex> lock(clientsMutex);
-    for (auto& [id, socket] : clients) {
-        if (socket && socket->is_open()) {
-            try { boost::asio::write(*socket, boost::asio::buffer("reload\n")); }
-            catch (...)
-            {
-                emit logMessage("Failed to reload client: " + QString::fromStdString(id));
-                logServer("Failed to reload client: " + id);
+void ServerManager::reloadClients()
+{
+    // 🚫 Prevent reload if any client is busy
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+
+        bool anyBusy = std::any_of(
+            clientsReady.begin(),
+            clientsReady.end(),
+            [](const auto& p) { return p.second.second; } // working == true
+            );
+
+        if (anyBusy) {
+            emit logMessage("Cannot reload clients: one or more clients are busy.");
+            return;
+        }
+    }
+
+    std::vector<QString> changedClients;
+
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+
+        for (auto& [id, socket] : clients) {
+            auto it = clientsReady.find(id);
+            if (it != clientsReady.end()) {
+                it->second.second = true; // Busy (reloading)
+                changedClients.emplace_back(QString::fromStdString(id));
+            }
+
+            if (socket && socket->is_open()) {
+                try {
+                    boost::asio::write(*socket, boost::asio::buffer("reload\n"));
+                } catch (...) {
+                    emit logMessage("Failed to reload client: " + QString::fromStdString(id));
+                    logServer("Failed to reload client: " + id);
+                }
             }
         }
     }
+
+    // 🔔 Emit AFTER unlock
+    for (const auto& id : changedClients) {
+        emit clientReadyStateChanged(id, false);
+    }
+
+    emit clientsStatusChanged();
 }
