@@ -191,16 +191,19 @@ void ServerManager::stopServer() {
     currentHashMessage.clear();
 
     emit logMessage("Server stopped.");
-    serverLogger.log("Server stopped.");
+    logServer("Server stopped.");
 }
 
 void ServerManager::handleClient(std::shared_ptr<boost::asio::ip::tcp::socket> socket) {
     std::string clientId = socket->remote_endpoint().address().to_string() + ":" +
                            std::to_string(socket->remote_endpoint().port());
+    std::string nickname;
 
     {
         std::lock_guard<std::mutex> lock(clientsMutex);
         clients[clientId] = socket;
+        auto it = clientsReady.find(clientId);
+        nickname = (it != clientsReady.end()) ? it->second.first : "";
 
         // Determine initial state: Working if there's an active task, Ready if idle
         bool isWorking = !currentHashMessage.empty() && !matchFound;
@@ -210,8 +213,9 @@ void ServerManager::handleClient(std::shared_ptr<boost::asio::ip::tcp::socket> s
         emit clientsStatusChanged();
     }
 
-    emit logMessage("Client " + QString::fromStdString(clientId) + " has connected.");
+    emit logMessage("Client connected: " + QString::fromStdString(clientId) + " " + QString::fromStdString(nickname));
     emit clientConnected(QString::fromStdString(clientId));
+    logServer(std::string("Client connected: ") + clientId + " " + nickname);
 
     // Send catch-up if task is active
     if (!currentHashMessage.empty() && !matchFound) {
@@ -308,6 +312,7 @@ void ServerManager::handleClient(std::shared_ptr<boost::asio::ip::tcp::socket> s
         clients.erase(clientId);
         clientsReady.erase(clientId);
         emit logMessage("Cllient " + QString::fromStdString(clientId) + " has disconnected.");
+        logServer("Cllient " + clientId + " has disconnected.");
         emit clientsStatusChanged();
 
         bool allIdle = std::all_of(clientsReady.begin(), clientsReady.end(),
@@ -361,8 +366,12 @@ void ServerManager::sendHashToClients(const QString& hashType, const QString& ha
     }
 
     if (found) {
-        serverLogger.log("Found pre-cracked hash: " + currentHash.toStdString());
-        emit logMessage("Found pre-cracked hash: " + currentHash + " Decoded: " + decoded);
+        logServer("Found pre-cracked Hash: " + currentHash.toStdString() +
+                         " Salt: " + currentSalt.toStdString() +
+                         " Decoded: " + decoded.toStdString());
+        emit logMessage("Found pre-cracked Hash: " + currentHash +
+                        " Salt: " + currentSalt +
+                        " Decoded: " + decoded);
         currentHashMessage.clear();
         emit StopCracking();
     } else {
@@ -419,11 +428,16 @@ void ServerManager::notifyClients() {
             } catch (const boost::system::system_error& e) {
                 emit logMessage("Failed to notify client: " + QString::fromStdString(id) +
                                 " (" + QString::fromStdString(e.what()) + ")");
+                logServer("Failed to notify client: " + id);
                 // Remove disconnected client safely
                 std::lock_guard<std::mutex> lock(clientsMutex);
                 clients.erase(id);
                 clientsReady.erase(id);
                 emit clientsStatusChanged();
+            }
+            catch (...) {
+                emit logMessage("Failed to notify client: " + QString::fromStdString(id));
+                logServer("Failed to notify client: " + id);
             }
         }).detach();
     }
@@ -516,7 +530,11 @@ void ServerManager::reloadClients() {
     for (auto& [id, socket] : clients) {
         if (socket && socket->is_open()) {
             try { boost::asio::write(*socket, boost::asio::buffer("reload\n")); }
-            catch (...) {}
+            catch (...)
+            {
+                emit logMessage("Failed to reload client: " + QString::fromStdString(id));
+                logServer("Failed to reload client: " + id);
+            }
         }
     }
 }
