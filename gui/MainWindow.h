@@ -28,6 +28,7 @@ private slots:
     void reloadClients();
     void checkHashType();
     void sendHash();
+    void startCooldown();
     void onClientConnected(const QString&);
     void onClientReadyStateChanged(const QString&, bool);
     void onLogMessage(const QString&);
@@ -38,8 +39,14 @@ private slots:
     void TurnOffCrackingZeroClients();
     void showClientContextMenu(const QPoint &pos);
 
+
 private:
     Ui::MainWindow* ui;
     ServerManager* serverManager;
     void updateClientList();
+    QTimer* cooldownTimer = nullptr;
+    int cooldownSeconds = 0;
+    bool started = false;
+    bool darkMode = false;
+    bool cooldownActive = false;
 };
