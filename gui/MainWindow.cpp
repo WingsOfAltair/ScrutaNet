@@ -9,9 +9,6 @@
 #include <boost/regex.hpp>
 #include "ClientListWidget.h"
 
-bool started = false;
-bool darkMode = false;
-
 void MainWindow::closeEvent(QCloseEvent* event) {
     // Optionally ask user for confirmation or do cleanup here
     // e.g. stop your server properly before exiting
@@ -251,7 +248,43 @@ void MainWindow::reloadClients() {
     }
 }
 
-void MainWindow::sendHash() {
+void MainWindow::startCooldown()
+{
+    if (cooldownTimer && cooldownTimer->isActive())
+        return;
+
+    cooldownActive = true;
+    cooldownSeconds = 3;
+
+    ui->buttonSendHash->setEnabled(false);
+    ui->buttonSendHash->setText(
+        QString("Wait %1 seconds...").arg(cooldownSeconds));
+
+    if (!cooldownTimer) {
+        cooldownTimer = new QTimer(this);
+        cooldownTimer->setInterval(1000);
+
+        connect(cooldownTimer, &QTimer::timeout, this, [this]() {
+            cooldownSeconds--;
+
+            if (cooldownSeconds > 0) {
+                ui->buttonSendHash->setText(
+                    QString("Wait %1 seconds...").arg(cooldownSeconds));
+            } else {
+                cooldownTimer->stop();
+                cooldownActive = false;
+                ui->buttonSendHash->setEnabled(true);
+                ui->buttonSendHash->setText(
+                    started ? "Stop Cracking!" : "Send to Clients");
+            }
+        });
+    }
+
+    cooldownTimer->start();
+}
+
+void MainWindow::sendHash()
+{
     QString type = ui->comboBoxHashType->currentText();
     QString hash = ui->lineEditHash->text().trimmed();
     QString salt = ui->lineEditSalt->text().trimmed();
@@ -263,51 +296,53 @@ void MainWindow::sendHash() {
 
     if (!started) {
         auto clientsReady = serverManager->getConnectedClientsStatus();
-        if (clientsReady.size() < 1)
-        {
-            QMessageBox::warning(this, "No Connected Clients", "There must be at least one connected, ready client.");
+        if (clientsReady.empty()) {
+            QMessageBox::warning(this, "No Connected Clients",
+                                 "There must be at least one connected, ready client.");
             return;
         }
 
         bool allReady = std::all_of(clientsReady.begin(), clientsReady.end(),
                                     [](const auto& pair) {
-                                        return !pair.second.second; // !working → ready
+                                        return !pair.second.second;
                                     });
 
-        if (!allReady)
-        {
-            QMessageBox::warning(this, "Ready connected clients.", "All connected clients must be ready.");
+        if (!allReady) {
+            QMessageBox::warning(this, "Clients Not Ready",
+                                 "All connected clients must be ready.");
             return;
         }
 
-        this->TurnOnCracking();
         serverManager->sendHashToClients(type, hash, salt);
+        TurnOnCracking();
     }
     else {
-        this->TurnOffCracking();
+        TurnOffCracking();
     }
+
+    startCooldown();
 }
 
 void MainWindow::TurnOnCracking() {
     started = true;
-    ui->buttonSendHash->setText("Stop Cracking!");
 }
 
 void MainWindow::TurnOffCrackingNotStop() {
     started = false;
-    ui->buttonSendHash->setText("Send to Clients");
+    if (!cooldownActive)
+        ui->buttonSendHash->setText("Send to Clients");
 }
 
 void MainWindow::TurnOffCracking() {
     started = false;
-    ui->buttonSendHash->setText("Send to Clients");
     serverManager->StopCrackingClients();
     ui->textEditLogs->append("Sent stop command to clients.");
 }
 
 void MainWindow::TurnOffCrackingZeroClients() {
     started = false;
-    ui->buttonSendHash->setText("Send to Clients");
+    if (!cooldownActive)
+        ui->buttonSendHash->setText("Send to Clients");
     serverManager->StopCrackingClients();
     ui->textEditLogs->append("Cracking has stopped because there are no connected clients.");
 }
