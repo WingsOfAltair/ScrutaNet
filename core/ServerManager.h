@@ -52,6 +52,7 @@ private:
     void asyncAcceptClient();
     void readCrackedHashes(const QString& file);
     void logServer(const std::string& message);
+    bool isCrackingActive() const;
 
 private:
     std::unordered_map<std::string, std::shared_ptr<boost::asio::ip::tcp::socket>> clients;
@@ -80,4 +81,12 @@ private:
 
     AsyncLogger serverLogger;
     AsyncStorageLogger crackedLogger;
+
+    enum class CrackState {
+        Idle,
+        Running,
+        Stopping
+    };
+
+    CrackState crackState = CrackState::Idle;
 };

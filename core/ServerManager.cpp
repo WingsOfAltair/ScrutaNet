@@ -41,6 +41,10 @@ void ServerManager::shutdownClient(const std::string& clientId) {
 }
 
 void ServerManager::restartClient(const std::string& clientId) {
+    if (crackState != CrackState::Idle) {
+        emit logMessage("Cannot reload clients while cracking is active.");
+        return;
+    }
     std::lock_guard<std::mutex> lock(clientsMutex);
     auto it = clients.find(clientId);
     if (it != clients.end() && it->second && it->second->is_open())
@@ -83,7 +87,11 @@ void ServerManager::StopCrackingClients() {
             currentHashMessage.clear();
             for (auto& [id, state] : clientsReady) {
                 state.second = false; // mark idle
+                crackState = CrackState::Stopping;
             }
+            crackState = CrackState::Idle;
+            currentHashMessage.clear();
+            matchFound = false;
         }
 
         emit clientsStatusChanged();
@@ -218,7 +226,20 @@ void ServerManager::handleClient(std::shared_ptr<boost::asio::ip::tcp::socket> s
     logServer(std::string("Client connected: ") + clientId + " " + nickname);
 
     // Send catch-up if task is active
-    if (!currentHashMessage.empty() && !matchFound) {
+    bool shouldCatchup = false;
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+
+        bool anyWorking = std::any_of(
+            clientsReady.begin(),
+            clientsReady.end(),
+            [](const auto& p) { return p.second.second; } // working
+            );
+
+        shouldCatchup = !currentHashMessage.empty() && !matchFound && anyWorking;
+    }
+
+    if (shouldCatchup) {
         std::thread(&ServerManager::sendCatchup, this, socket, clientId).detach();
     }
 
@@ -307,26 +328,53 @@ void ServerManager::handleClient(std::shared_ptr<boost::asio::ip::tcp::socket> s
             }
         }
     } catch (...) {
-        // Handle disconnect safely
-        std::lock_guard<std::mutex> lock(clientsMutex);
-        clients.erase(clientId);
-        clientsReady.erase(clientId);
-        emit logMessage("Cllient " + QString::fromStdString(clientId) + " has disconnected.");
-        logServer("Cllient " + clientId + " has disconnected.");
+        bool noClientsLeft = false;
+
+        {
+            std::lock_guard<std::mutex> lock(clientsMutex);
+
+            clients.erase(clientId);
+            clientsReady.erase(clientId);
+
+            noClientsLeft = clients.empty();
+        }
+
+        emit logMessage("Client " + QString::fromStdString(clientId) + " has disconnected.");
+        logServer("Client " + clientId + " has disconnected.");
         emit clientsStatusChanged();
 
-        bool allIdle = std::all_of(clientsReady.begin(), clientsReady.end(),
-                                   [](const auto& p) {
-                                       return !p.second.second; // second = working flag
-                                   });
+        if (noClientsLeft) {
+            crackState = CrackState::Idle;
+            currentHashMessage.clear();
+            matchFound = false;
 
-        if (allIdle && !matchFound || clients.empty()) {
+            emit StopCrackingZeroClients();
+            return;  // nothing else to do
+        }
+
+        bool allIdle;
+        {
+            std::lock_guard<std::mutex> lock(clientsMutex);
+            allIdle = std::all_of(
+                clientsReady.begin(),
+                clientsReady.end(),
+                [](const auto& p) { return !p.second.second; }
+                );
+        }
+
+        if (allIdle && !matchFound) {
             emit StopCrackingNotStop();
             emit logMessage("No match was found.");
-        } else if (allIdle){
+        } else if (allIdle) {
             emit StopCrackingNotStop();
         }
     }
+}
+
+bool ServerManager::isCrackingActive() const {
+    return crackState == CrackState::Running
+           && !currentHashMessage.empty()
+           && !matchFound;
 }
 
 std::unordered_map<std::string, std::pair<std::string,bool>> ServerManager::getConnectedClientsStatus() {
@@ -381,6 +429,8 @@ void ServerManager::sendHashToClients(const QString& hashType, const QString& ha
     }
 
     if (found) {
+        crackState = CrackState::Idle;
+        currentHashMessage.clear();
         logServer("Found pre-cracked Hash: " + currentHash.toStdString() +
                          " Salt: " + currentSalt.toStdString() +
                          " Decoded: " + decoded.toStdString());
@@ -391,6 +441,7 @@ void ServerManager::sendHashToClients(const QString& hashType, const QString& ha
         emit StopCracking();
     } else {
         notifyClients();
+        crackState = CrackState::Running;
         emit StartCracking();
         emit logMessage("Sent Hash to all connected clients.");
     }
