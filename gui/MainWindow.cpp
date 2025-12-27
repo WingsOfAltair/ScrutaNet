@@ -53,12 +53,12 @@ void MainWindow::showClientContextMenu(const QPoint &pos) {
         QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
         QString clientId = clientLabel.section(' ', 0, 0); // split off status
         serverManager->shutdownClient(clientId.toStdString());
-        onLogMessage("Sent shutdown command to client: " + clientId);
+        onLogMessage("Attempted to sent shutdown command to client: " + clientId);
     } else if (selectedAction->text() == "Restart Client") {
         QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
         QString clientId = clientLabel.section(' ', 0, 0); // split off status
         serverManager->restartClient(clientId.toStdString());
-        onLogMessage("Sent restart command to client: " + clientId);
+        onLogMessage("Attempted to send restart command to client: " + clientId);
     } else if (selectedAction->text() == "Set Nickname") {
         QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
         QString clientId = clientLabel.section(' ', 0, 0); // split off status
