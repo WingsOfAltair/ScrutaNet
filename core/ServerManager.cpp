@@ -13,7 +13,7 @@ ServerManager::ServerManager(QObject* parent)
     readCrackedHashes("cracked.txt");
 
     std::ifstream in("server.ini");
-    int port = 5000;
+    int port = 1337;
     if (in.is_open()) {
         std::string line;
         while (std::getline(in, line)) {
@@ -49,6 +49,108 @@ void ServerManager::restartClient(const std::string& clientId) {
     auto it = clients.find(clientId);
     if (it != clients.end() && it->second && it->second->is_open())
         boost::asio::write(*it->second, boost::asio::buffer("RESTART\n"));
+}
+
+void ServerManager::resumeClient(const std::string& clientId) {
+    if (crackState == CrackState::Idle) {
+        emit logMessage("There is no active cracking task.");
+        return;
+    }
+
+    std::shared_ptr<boost::asio::ip::tcp::socket> clientSocket;
+    bool isWorking = false;
+
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+
+        auto it = clients.find(clientId);
+        if (it == clients.end() || !it->second || !it->second->is_open()) {
+            emit logMessage("Client socket not available.");
+            return;
+        }
+
+        clientSocket = it->second;
+
+        auto readyIt = clientsReady.find(clientId);
+        if (readyIt != clientsReady.end()) {
+            isWorking = readyIt->second.second;
+        }
+    }
+
+    if (isWorking) {
+        emit logMessage("Client is already working. Resume ignored.");
+        return;
+    }
+
+    boost::asio::write(
+        *clientSocket,
+        boost::asio::buffer("RESUME\n")
+        );
+
+    bool shouldCatchup = false;
+
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+
+        bool anyWorking = std::any_of(
+            clientsReady.begin(),
+            clientsReady.end(),
+            [](const auto& p) {
+                return p.second.second; // working
+            }
+            );
+
+        shouldCatchup =
+            !currentHashMessage.empty() &&
+            !matchFound &&
+            anyWorking;
+    }
+
+    if (shouldCatchup) {
+        std::thread(
+            &ServerManager::sendCatchup,
+            this,
+            clientSocket,
+            clientId
+            ).detach();
+    }
+}
+
+void ServerManager::stopClient(const std::string& clientId) {
+    if (crackState == CrackState::Idle) {
+        emit logMessage("There is no active cracking task.");
+        return;
+    }
+
+    std::shared_ptr<boost::asio::ip::tcp::socket> clientSocket;
+    bool isWorking = false;
+
+    {
+        std::lock_guard<std::mutex> lock(clientsMutex);
+
+        auto it = clients.find(clientId);
+        if (it == clients.end() || !it->second || !it->second->is_open()) {
+            emit logMessage("Client socket not available.");
+            return;
+        }
+
+        clientSocket = it->second;
+
+        auto readyIt = clientsReady.find(clientId);
+        if (readyIt != clientsReady.end()) {
+            isWorking = readyIt->second.second;
+        }
+    }
+
+    if (!isWorking) {
+        emit logMessage("Client is already idle. Stop ignored.");
+        return;
+    }
+
+    boost::asio::write(
+        *clientSocket,
+        boost::asio::buffer("STOP\n")
+        );
 }
 
 void ServerManager::setClientNickname(const std::string& clientId, const std::string& newNickname) {

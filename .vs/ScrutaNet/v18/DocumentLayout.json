@@ -1,7 +1,12 @@
 {
   "Version": 1,
   "WorkspaceRootPath": "D:\\GitHub\\ScrutaNet\\",
-  "Documents": [],
+  "Documents": [
+    {
+      "AbsoluteMoniker": "D:0:0:{01608A47-2232-4294-AE71-4B9B5F9F5083}|ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.vcxproj|D:\\GitHub\\ScrutaNet\\ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}",
+      "RelativeMoniker": "D:0:0:{01608A47-2232-4294-AE71-4B9B5F9F5083}|ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.vcxproj|solutionrelative:ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.cpp||{D0E1A5C6-B359-4E41-9B60-3365922C2A22}"
+    }
+  ],
   "DocumentGroupContainers": [
     {
       "Orientation": 0,
@@ -9,7 +14,7 @@
       "DocumentGroups": [
         {
           "DockedWidth": 200,
-          "SelectedChildIndex": -1,
+          "SelectedChildIndex": 29,
           "Children": [
             {
               "$type": "Bookmark",
@@ -126,6 +131,19 @@
             {
               "$type": "Bookmark",
               "Name": "ST:0:0:{34e76e81-ee4a-11d0-ae2e-00a0c90fffc3}"
+            },
+            {
+              "$type": "Document",
+              "DocumentIndex": 0,
+              "Title": "ScrutaNet-Client-CLI.cpp",
+              "DocumentMoniker": "D:\\GitHub\\ScrutaNet\\ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.cpp",
+              "RelativeDocumentMoniker": "ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.cpp",
+              "ToolTip": "D:\\GitHub\\ScrutaNet\\ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.cpp",
+              "RelativeToolTip": "ScrutaNet-Client-CLI\\ScrutaNet-Client-CLI.cpp",
+              "ViewState": "AgIAAFkEAAAAAAAAAAAawHAEAAAJAAAAAAAAAA==",
+              "Icon": "ae27a6b0-e345-4288-96df-5eaf394ee369.000677|",
+              "WhenOpened": "2025-12-27T09:58:52.433Z",
+              "EditorCaption": ""
             }
           ]
         }

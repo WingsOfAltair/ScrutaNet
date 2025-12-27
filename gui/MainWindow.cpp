@@ -45,23 +45,32 @@ void MainWindow::showClientContextMenu(const QPoint &pos) {
     QMenu contextMenu(this);
     QAction *shutdownAction = contextMenu.addAction("Shutdown Client");
     QAction *restartAction = contextMenu.addAction("Restart Client");
+    QAction *resumeAction = contextMenu.addAction("Resume Client");
+    QAction *stopAction = contextMenu.addAction("Stop Client");
     QAction *setNicknameAction = contextMenu.addAction("Set Nickname");
     QAction *removeNicknameAction = contextMenu.addAction("Remove Nickname");
 
     QAction *selectedAction = contextMenu.exec(ui->listWidgetClients->mapToGlobal(pos));
+
+    if (!selectedAction)
+        return;
+
+    QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
+    QString clientId = clientLabel.section(' ', 0, 0); // split off status
+
     if (selectedAction->text() == "Shutdown Client") {
-        QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
-        QString clientId = clientLabel.section(' ', 0, 0); // split off status
         serverManager->shutdownClient(clientId.toStdString());
         onLogMessage("Attempted to sent shutdown command to client: " + clientId);
     } else if (selectedAction->text() == "Restart Client") {
-        QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
-        QString clientId = clientLabel.section(' ', 0, 0); // split off status
         serverManager->restartClient(clientId.toStdString());
         onLogMessage("Attempted to send restart command to client: " + clientId);
+    } else if (selectedAction->text() == "Resume Client") {
+        serverManager->resumeClient(clientId.toStdString());
+        onLogMessage("Attempted to send resume command to client: " + clientId);
+    } else if (selectedAction->text() == "Stop Client") {
+        serverManager->stopClient(clientId.toStdString());
+        onLogMessage("Attempted to send stop command to client: " + clientId);
     } else if (selectedAction->text() == "Set Nickname") {
-        QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
-        QString clientId = clientLabel.section(' ', 0, 0); // split off status
         std::string existingNickname = "";
 
         std::unordered_map<std::string, std::pair<std::string, bool>> connectedClients = serverManager->getConnectedClientsStatus();
@@ -95,9 +104,6 @@ void MainWindow::showClientContextMenu(const QPoint &pos) {
             // Cancel was pressed
         }
     } else if (selectedAction->text() == "Remove Nickname") {
-        QString clientLabel = item->text(); // e.g. "127.0.0.1:2345 [Ready]"
-        QString clientId = clientLabel.section(' ', 0, 0); // split off status
-
         QMessageBox::StandardButton reply = QMessageBox::question(
             this,
             "Confirm Action",

@@ -682,6 +682,16 @@ void socket_reader() {
             continue;  // Exit the reader thread or continue to clean shutdown
         }
 
+        if (message.find("RESUME") == 0) {
+            std::cout << "Received RESUME command. Resuming processing.\n";
+            logger.log("Received RESUME command. Resuming processing.");
+            stop_processing.store(false, std::memory_order_release);
+            prepared.store(true);
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            queue_cv.notify_one();  // Wake up main thread if it's waiting
+            continue;  // Exit the reader thread or continue to clean shutdown
+        }
+
         if (message.find("SHUTDOWN") == 0) {
             std::cout << "Received SHUTDOWN command. Stopping processing & shutting down.\n";
             logger.log("Received SHUTDOWN command. Stopping processing & shutting down.");
