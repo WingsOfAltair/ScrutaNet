@@ -25,6 +25,8 @@ public:
     void removeClientNickname(const std::string& clientId);
     void shutdownClient(const std::string& clientId);
     void restartClient(const std::string& clientId);
+    void resumeClient(const std::string& clientId);
+    void stopClient(const std::string& clientId);
     std::unordered_map<std::string, std::pair<std::string,bool>> getConnectedClientsStatus();
 
     void sendHashToClients(const QString& hashType, const QString& hash, const QString& salt);
